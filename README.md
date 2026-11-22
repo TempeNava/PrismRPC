@@ -81,6 +81,16 @@ This produces `dist\PrismRPC-Setup.exe`. It first builds the app as a folder, th
 
 For development, `python main.py --settings` opens the settings window and `python test_prismrpc.py` runs the self-check.
 
+## Is it safe?
+
+PrismRPC is an unsigned program, so Windows SmartScreen warns about it, and a few antivirus engines on [VirusTotal](https://www.virustotal.com) flag it with generic *heuristic* labels (such as `Trojan.Win32.Generic`). That is common for unsigned apps built with PyInstaller. It also does things that look suspicious to heuristics: it edits Prism's config file, starts a background process and creates a Start menu shortcut.
+
+I can't promise a scanner will never flag it, but you don't have to take my word for it:
+
+- **Read the source.** It's all in this repo, and everything it does is described above.
+- **Build it yourself** with `build.bat` and compare.
+- **VirusTotal scan:** [view the scan](https://www.virustotal.com/gui/file/aab0949fec1c2c17c05ed908c28c74fb22582a8dba7ca0234436c6a52804d8bb/)
+
 ## Troubleshooting
 
 - **No status in Discord.** Discord must be running, and *Settings → Activity Privacy → Share your detected activity* must be on.
@@ -97,7 +107,7 @@ Only **Prism Launcher** is supported. It relies on Prism's pre-launch and post-e
 
 ## About this project
 
-I started PrismRPC as a small script of my own, because I wanted a Discord status for my modpacks without installing a Rich Presence mod in every one. The first version was my own code. Much of the later work, including restructuring it, the installer, the tray icon and the settings window, was done with the help from AI. I run and test it on my own setup, and I'll do my best to maintain it. All the source is here, so you can read exactly what it does.
+I started PrismRPC as a small script of my own, because I wanted a Discord status for my modpacks without installing a Rich Presence mod in every one. The first version was my own code. Much of the later work, including restructuring it, the installer, the tray icon and the settings window, was done with of help from AI. I run and test it on my own setup, and I'll do my best to maintain it. All the source is here, so you can read exactly what it does.
 
 ## Reporting problems and contributing
 
