@@ -1,6 +1,6 @@
 """Fixed constants. User-facing options live in settings.py / the settings window."""
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # Discord application ID. If you fork this, create your own application at
 # https://discord.com/developers/applications, upload a Rich Presence art asset
@@ -9,8 +9,10 @@ CLIENT_ID = "1573820368626385046"
 FALLBACK_IMAGE = "mc_icon"  # asset key uploaded to the Discord application
 
 # "owner/repo" of the GitHub repository that hosts the releases, used by the
-# update check. Leave empty to disable the update check.
-GITHUB_REPO = "https://github.com/TempeNava/PrismRPC"
+# update check. A full URL ("https://github.com/owner/repo") works too, so a
+# fork can paste the address straight from the browser. Leave empty to disable
+# the update check.
+GITHUB_REPO = "TempeNava/PrismRPC"
 
 POLL_SECONDS = 5            # how often the game log is checked
 MIN_UPDATE_INTERVAL = 15    # Discord rate-limits presence updates

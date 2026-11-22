@@ -66,7 +66,7 @@ When an instance starts, Prism runs PrismRPC as its pre-launch command. It start
 
 Fixed values (Discord application ID, polling intervals, the list of Rich Presence mods to defer to) are in [`config.py`](config.py).
 
-**Forking?** Create your own application in the [Discord Developer Portal](https://discord.com/developers/applications), upload a Rich Presence art asset named `mc_icon` (or change `FALLBACK_IMAGE`), set your own `CLIENT_ID`, and set `GITHUB_REPO` (e.g. `"yourname/yourrepo"`) to turn on the update check.
+**Forking?** Create your own application in the [Discord Developer Portal](https://discord.com/developers/applications), upload a Rich Presence art asset named `mc_icon` (or change `FALLBACK_IMAGE`), set your own `CLIENT_ID`, and set `GITHUB_REPO` (e.g. `"yourname/yourrepo"`, a full GitHub URL works too) to turn on the update check.
 
 ## Build from source
 
@@ -79,7 +79,7 @@ build.bat
 
 This produces `dist\PrismRPC-Setup.exe`. It first builds the app as a folder, then wraps that folder in a one-file installer. The installed app is a folder build on purpose: a one-file exe unpacks itself to a temp folder on every launch, which is slow and can trigger "Failed to remove temporary directory" warnings when Prism runs it for a split second.
 
-For development, `python main.py --settings` opens the settings window and `python test_prismrpc.py` runs the self-check.
+For development, `python main.py --settings` opens the settings window, `python main.py --diagnose <instance folder>` prints what PrismRPC sees for an instance, and `python test_prismrpc.py` runs the self-check.
 
 ## Is it safe?
 
@@ -98,6 +98,16 @@ I can't promise a scanner will never flag it, but you don't have to take my word
 - **Installer says Prism is running.** Prism rewrites its settings when it exits, which would undo the change. Close it completely, including the tray icon, and retry.
 - **No pack icon or button.** Only packs installed through Prism's Modrinth or CurseForge browser have an ID to look up. Hand-made instances show the default icon.
 - **Wrong or missing server/singleplayer state.** The state comes from `logs/latest.log`; unusual launch setups or log-changing mods may hide the lines it looks for.
+
+### If a status is missing, ask PrismRPC what it sees
+
+`--diagnose` prints what PrismRPC found for one instance, and what would stop its status. It is read-only: it changes no setting and never touches Prism's config.
+
+```
+"%LOCALAPPDATA%\PrismRPC\app\PrismRPC.exe" --diagnose "%APPDATA%\PrismLauncher\instances\Cube Warper"
+```
+
+It lists the settings, Prism's Pre-launch/Post-exit commands, the instance's version, loader and mod count, and the status it reads out of `logs/latest.log`, then ends with the things to check: PrismRPC switched off, the instance unticked, a Rich Presence mod installed, a missing launch command, `pypresence` not installed. Add `--json` for a machine-readable report, or `--log FILE` to read a log from somewhere else. `--version` prints the version on its own.
 
 ## Platform support
 

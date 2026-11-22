@@ -84,36 +84,78 @@ def lookup_pack(inst_dir):
 
 
 # --- update check -----------------------------------------------------------------
+def repo_slug(value):
+    """'owner/repo' from a slug or a full GitHub URL, else ''.
+
+    Accepts "owner/repo", "https://github.com/owner/repo", a trailing slash or
+    ".git", and the SSH form "git@github.com:owner/repo.git".
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"^(?:https?://|git@)?(?:www\.)?github\.com[/:]", "", text, flags=re.I)
+    text = text.strip("/")
+    if text.lower().endswith(".git"):
+        text = text[:-4]
+    parts = [p for p in text.split("/") if p]
+    if len(parts) < 2 or not re.fullmatch(r"[\w.-]+/[\w.-]+", "/".join(parts[:2])):
+        return ""
+    return "/".join(parts[:2])
+
+
+def repo_url(value=GITHUB_REPO):
+    slug = repo_slug(value)
+    return f"https://github.com/{slug}" if slug else ""
+
+
 def _version_tuple(tag):
-    return tuple(int(n) for n in re.findall(r"\d+", tag)[:3])
+    """Numbers of the version, ignoring a pre-release/build suffix ("-beta2", "+3")."""
+    return tuple(int(n) for n in re.findall(r"\d+", re.split(r"[-+]", str(tag))[0]))
 
 
 def is_newer(tag, current=VERSION):
+    """True when `tag` is a later version than `current`.
+
+    Missing parts count as zero ("1.2" == "1.2.0"), and a fourth part is
+    compared instead of being ignored, so "1.1.0.1" is newer than "1.1.0".
+    """
     try:
-        return _version_tuple(tag) > _version_tuple(current)
+        newer, base = _version_tuple(tag), _version_tuple(current)
     except ValueError:
         return False
+    if not newer:
+        return False
+    width = max(len(newer), len(base))
+    return newer + (0,) * (width - len(newer)) > base + (0,) * (width - len(base))
 
 
 def check_for_update(force=False):
     """(tag, release_url) if a newer release exists, else None.
 
     Asks GitHub at most once a day unless force=True. Returns None when the
-    repository isn't configured or GitHub can't be reached.
+    repository isn't configured or GitHub can't be reached (a cached answer is
+    still used when the request fails).
     """
-    if not GITHUB_REPO:
+    slug = repo_slug(GITHUB_REPO)
+    if not slug:
         return None
     cache = load_cache()
     entry = cache.get("update")
+    if not isinstance(entry, dict):
+        entry = {}
     if force or not cache_fresh(entry, UPDATE_CACHE_SECONDS):
         try:
-            rel = get_json(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+            rel = get_json(f"https://api.github.com/repos/{slug}/releases/latest")
         except Exception:
-            return None
-        entry = {"t": time.time(), "tag": rel.get("tag_name") or "",
-                 "url": rel.get("html_url") or ""}
-        cache["update"] = entry
-        save_cache(cache)
+            rel = None  # offline: fall back to whatever we cached last time
+        if rel is not None:
+            entry = {"t": time.time(), "tag": rel.get("tag_name") or "",
+                     "url": rel.get("html_url") or ""}
+            cache["update"] = entry
+            save_cache(cache)
     if entry.get("tag") and is_newer(entry["tag"]):
-        return entry["tag"], entry.get("url") or f"https://github.com/{GITHUB_REPO}/releases"
+        return entry["tag"], entry.get("url") or f"https://github.com/{slug}/releases"
     return None
+
+
+UPDATE_CHECK_ENABLED = bool(repo_slug(GITHUB_REPO))
