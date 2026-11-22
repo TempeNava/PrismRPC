@@ -1,0 +1,16 @@
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime / editor
+*.pid
+*.bak
+.vscode/
+.idea/
