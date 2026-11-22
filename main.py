@@ -7,6 +7,10 @@ Command line (Prism runs the last two itself; name/dir default to INST_NAME / IN
   --settings                   Open the settings window
   --uninstall                  Remove it from Prism's launch commands
   --stop                       Stop this instance's presence (post-exit hook)
+  --version                    Print the version
+  --diagnose [dir] [--log F] [--json]
+                               Show what PrismRPC sees for an instance, and why
+                               a status might be missing (read-only)
   [--child] [name] [dir]       Start the presence (pre-launch hook)
 """
 import os
@@ -15,8 +19,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from presence import (IS_FROZEN, SELF_PATH, resolve_instance, run, self_cmd,
-                      stop_instance)
+from config import VERSION
+from presence import (IS_FROZEN, SELF_PATH, is_ours, resolve_instance, run,
+                      self_cmd, stop_instance)
 from settings import cfg_get, cfg_set, data_dir, prism_cfg_path, prism_running
 
 
@@ -98,11 +103,6 @@ def remove_shortcut():
 
 
 # --- Prism config handling ------------------------------------------------------
-def is_ours(value):
-    v = value.lower().replace("_", "")
-    return bool(value) and ("prismrpc" in v or SELF_PATH.name.lower() in value.lower())
-
-
 def edit_prism_cfg(install):
     """Add or remove our commands in Prism's config. Returns the exe path on
     success when installing, True on success when uninstalling, else None."""
@@ -181,7 +181,12 @@ def main():
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     launched_by_prism = "INST_DIR" in os.environ
 
-    if "--settings" in flags:
+    if "--version" in flags:
+        print(f"PrismRPC {VERSION}")
+    elif "--diagnose" in flags:
+        import diagnose
+        return diagnose.run(sys.argv[1:])
+    elif "--settings" in flags:
         open_settings()
     elif "--uninstall" in flags:
         do_uninstall()
@@ -193,7 +198,8 @@ def main():
         stop_instance(resolve_instance()[1])
     else:
         run("--child" in flags)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,9 +1,11 @@
 """Settings window (customtkinter). Every change is saved immediately."""
+import queue
+import threading
 import webbrowser
 
 import settings as st
-from config import GITHUB_REPO, VERSION
-from online import check_for_update
+from config import VERSION
+from online import UPDATE_CHECK_ENABLED, check_for_update
 
 TIMER_LABELS = {"game": "Game", "world": "World", "off": "Off"}
 MUTED = ("gray45", "gray60")  # (light mode, dark mode)
@@ -122,11 +124,22 @@ def open_window():
     download = ctk.CTkButton(footer, text="Download", width=100)  # shown only for updates
     status = ctk.CTkLabel(root, text="", text_color=MUTED, font=small, anchor="w")
     status.pack(anchor="w", padx=26, pady=(0, 14))
+    results = queue.Queue()  # filled by the update-check thread
 
     def check_now():
+        # The request can take seconds: never run it on the window's thread.
         status.configure(text="Checking...")
-        root.update_idletasks()
-        found = check_for_update(force=True)
+        download.pack_forget()
+        threading.Thread(target=lambda: results.put(check_for_update(force=True)),
+                         daemon=True).start()
+        wait_for_result()
+
+    def wait_for_result():
+        try:
+            found = results.get_nowait()
+        except queue.Empty:
+            root.after(100, wait_for_result)
+            return
         if found:
             status.configure(text=f"Version {found[0]} is available.")
             download.configure(command=lambda: webbrowser.open(found[1]))
@@ -136,7 +149,7 @@ def open_window():
             status.configure(text="You're up to date.")
 
     check.configure(command=check_now)
-    if not GITHUB_REPO:
+    if not UPDATE_CHECK_ENABLED:
         check.configure(state="disabled")
         status.configure(text="Update checking isn't set up in this build.")
 

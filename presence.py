@@ -44,11 +44,23 @@ def spawn(args):
 
 
 def resolve_instance():
-    """(name, instance_dir) from the command line, falling back to Prism's env vars."""
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    name = args[0] if args else os.environ.get("INST_NAME", "Modded Minecraft")
-    inst_dir = Path(args[1] if len(args) > 1 else os.environ.get("INST_DIR", ""))
+    """(name, instance_dir) from the command line, falling back to Prism's env vars.
+
+    The directory is None when neither the command line nor INST_DIR gives one,
+    so a bare run can never mistake the current working directory for an
+    instance (and write its PID file there).
+    """
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    name = args[0] if args else os.environ.get("INST_NAME") or "Modded Minecraft"
+    raw = args[1] if len(args) > 1 else os.environ.get("INST_DIR") or ""
+    inst_dir = Path(raw) if str(raw).strip() else None
     return name, inst_dir
+
+
+def is_ours(value):
+    """True when a Prism launch command is one of our own (so we may replace it)."""
+    v = value.lower().replace("_", "")
+    return bool(value) and ("prismrpc" in v or SELF_PATH.name.lower() in value.lower())
 
 
 def find_mc_dir(inst_dir):
@@ -69,6 +81,8 @@ def pid_file(inst_dir):
 def stop_instance(inst_dir):
     # Removing the PID file is the stop signal: the running process notices it
     # within a few seconds, clears the Discord status and exits cleanly.
+    if inst_dir is None:
+        return
     try:
         pid_file(inst_dir).unlink()
     except OSError:
@@ -178,6 +192,33 @@ class LogWatcher:
                 return f"Playing on {self.server}"
             return "Playing Multiplayer"
         return "Main Menu"
+
+
+def tail_log(path, max_bytes=1 << 20):
+    """A LogWatcher that has already replayed the end of `path`.
+
+    Used by --diagnose to show the status the log adds up to right now, without
+    waiting for a game session. Only the last `max_bytes` are read.
+    """
+    watcher = LogWatcher(path, 0)
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return watcher
+    start = max(0, st.st_size - max_bytes)
+    if start:
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                f.readline()          # drop the half line we started inside
+                start = f.tell()
+        except OSError:
+            return watcher
+    watcher.ino = st.st_ino
+    watcher.pos = start
+    watcher.first = False             # we asked for this content: do not skip it
+    watcher.poll()
+    return watcher
 
 
 # --- state shared between the presence loop and the tray icon ---------------
@@ -326,7 +367,7 @@ def start_lookups(session, live):
 # --- entry point for the pre-launch command ---------------------------------
 def run(is_child):
     name, inst_dir = resolve_instance()
-    if not inst_dir.is_dir():
+    if inst_dir is None or not inst_dir.is_dir():
         return
     live = LiveSettings()
     settings = live.get()

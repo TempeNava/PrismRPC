@@ -1,4 +1,6 @@
 """Self-check: python test_prismrpc.py  (no Discord, network, tray or GUI needed)."""
+import contextlib
+import io
 import json
 import os
 import sys
@@ -34,6 +36,7 @@ class FakePresence:
 
 sys.modules["pypresence"] = types.SimpleNamespace(Presence=FakePresence)
 
+import diagnose  # noqa: E402
 import online  # noqa: E402
 import presence  # noqa: E402
 import settings  # noqa: E402
@@ -100,6 +103,85 @@ class OnlineTests(unittest.TestCase):
         self.assertTrue(online.is_newer("v1.10.0", "1.9.0"))
         self.assertFalse(online.is_newer("v1.1.0", "1.1.0"))
         self.assertFalse(online.is_newer("nightly", "1.1.0"))
+        self.assertTrue(online.is_newer("1.1.0.1", "1.1.0"))     # 4th part counts
+        self.assertFalse(online.is_newer("1.2", "1.2.0"))        # missing part is 0
+        self.assertTrue(online.is_newer("1.2", "1.1.9"))
+        self.assertTrue(online.is_newer("v1.2.0-beta.3", "1.1.0"))  # suffix ignored
+        self.assertFalse(online.is_newer("v1.1.0+build7", "1.1.0"))
+        self.assertFalse(online.is_newer("", "1.1.0"))
+
+    def test_repo_slug(self):
+        cases = {
+            "TempeNava/PrismRPC": "TempeNava/PrismRPC",
+            "https://github.com/TempeNava/PrismRPC": "TempeNava/PrismRPC",
+            "https://github.com/TempeNava/PrismRPC/": "TempeNava/PrismRPC",
+            "https://github.com/TempeNava/PrismRPC.git": "TempeNava/PrismRPC",
+            "git@github.com:TempeNava/PrismRPC.git": "TempeNava/PrismRPC",
+            "  https://www.github.com/TempeNava/PrismRPC/releases  ": "TempeNava/PrismRPC",
+            "https://gitlab.com/owner/repo": "",
+            "PrismRPC": "",
+            "": "",
+        }
+        for value, expected in cases.items():
+            self.assertEqual(online.repo_slug(value), expected, value)
+        self.assertEqual(online.repo_url("https://github.com/a/b"), "https://github.com/a/b")
+        self.assertEqual(online.repo_url(""), "")
+
+
+class UpdateCheckTests(unittest.TestCase):
+    """The update check used to build .../repos/https://github.com/... (404 on
+    every call, swallowed), so it never found a release."""
+
+    def setUp(self):
+        settings.save_cache({})
+
+    def tearDown(self):
+        settings.save_cache({})
+
+    def swap(self, repo, reply):
+        calls = []
+
+        def fake(url, timeout=5):
+            calls.append(url)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        self.addCleanup(setattr, online, "get_json", online.get_json)
+        self.addCleanup(setattr, online, "GITHUB_REPO", online.GITHUB_REPO)
+        online.get_json, online.GITHUB_REPO = fake, repo
+        return calls
+
+    def test_asks_the_github_api_for_the_configured_repository(self):
+        calls = self.swap("TempeNava/PrismRPC",
+                          {"tag_name": "v9.9.9", "html_url": "https://github.com/t/tag"})
+        self.assertEqual(online.check_for_update(force=True),
+                         ("v9.9.9", "https://github.com/t/tag"))
+        self.assertEqual(calls,
+                         ["https://api.github.com/repos/TempeNava/PrismRPC/releases/latest"])
+
+    def test_a_full_url_is_accepted_and_the_release_link_is_the_repo(self):
+        calls = self.swap("https://github.com/TempeNava/PrismRPC/", {"tag_name": "v9.9.9"})
+        self.assertEqual(online.check_for_update(force=True),
+                         ("v9.9.9", "https://github.com/TempeNava/PrismRPC/releases"))
+        self.assertEqual(calls,
+                         ["https://api.github.com/repos/TempeNava/PrismRPC/releases/latest"])
+
+    def test_no_repository_means_no_request(self):
+        calls = self.swap("", {"tag_name": "v9.9.9"})
+        self.assertIsNone(online.check_for_update(force=True))
+        self.assertEqual(calls, [])
+
+    def test_offline_run_keeps_using_the_cached_answer(self):
+        settings.save_cache({"update": {"t": time.time(), "tag": "v9.9.9", "url": "u"}})
+        self.swap("TempeNava/PrismRPC", OSError("offline"))
+        self.assertEqual(online.check_for_update(force=True), ("v9.9.9", "u"))
+
+    def test_daily_cache_is_used_without_a_request(self):
+        settings.save_cache({"update": {"t": time.time(), "tag": "v9.9.9", "url": "u"}})
+        calls = self.swap("TempeNava/PrismRPC", {"tag_name": "v1.0.0"})
+        self.assertEqual(online.check_for_update(), ("v9.9.9", "u"))
+        self.assertEqual(calls, [])
 
 
 class PresenceTests(unittest.TestCase):
@@ -157,6 +239,173 @@ class PresenceTests(unittest.TestCase):
         pf.unlink()                              # post-exit command
         t.join(5)
         self.assertFalse(t.is_alive())
+
+
+class InstanceResolutionTests(unittest.TestCase):
+    """`Path("")` is ".", and `is_dir()` accepts it: a run without INST_DIR used
+    to treat the working directory as an instance and write its PID file there."""
+
+    def setUp(self):
+        self.addCleanup(setattr, sys, "argv", sys.argv)
+        for key in ("INST_DIR", "INST_NAME"):
+            previous = os.environ.pop(key, None)
+            if previous is None:
+                self.addCleanup(os.environ.pop, key, None)
+            else:
+                self.addCleanup(os.environ.__setitem__, key, previous)
+
+    def test_no_directory_means_no_instance(self):
+        sys.argv = ["main.py", "--child"]
+        self.assertEqual(presence.resolve_instance(), ("Modded Minecraft", None))
+
+    def test_an_empty_directory_is_not_the_current_one(self):
+        os.environ["INST_DIR"] = ""
+        sys.argv = ["main.py", "--child", ""]
+        self.assertIsNone(presence.resolve_instance()[1])
+
+    def test_environment_and_arguments_give_the_directory(self):
+        inst = Path(tempfile.mkdtemp())
+        os.environ["INST_DIR"], os.environ["INST_NAME"] = str(inst), "FromPrism"
+        sys.argv = ["main.py"]
+        self.assertEqual(presence.resolve_instance(), ("FromPrism", inst))
+        sys.argv = ["main.py", "--child", "Named", str(inst)]
+        self.assertEqual(presence.resolve_instance(), ("Named", inst))
+
+    def test_option_arguments_are_not_taken_for_a_name(self):
+        sys.argv = ["main.py", "--child", "-q", "--dry-run"]
+        self.assertEqual(presence.resolve_instance(), ("Modded Minecraft", None))
+
+    def test_nothing_is_written_to_the_working_directory(self):
+        sys.argv = ["main.py", "--child"]
+        before = set(os.listdir(Path.cwd()))
+        presence.run(True)             # no instance: returns without starting
+        self.assertEqual(set(os.listdir(Path.cwd())), before)
+        presence.stop_instance(None)   # post-exit hook without a directory
+
+
+class LogTailTests(unittest.TestCase):
+    def write(self, text):
+        log = Path(tempfile.mkdtemp()) / "latest.log"
+        log.write_text(text, encoding="utf-8")
+        return log
+
+    def test_replays_the_status_out_of_a_log(self):
+        log = self.write("[1] [Render thread/INFO]: Starting integrated minecraft "
+                         "server version 1.21\n")
+        self.assertEqual(presence.tail_log(log).details(), "Playing Singleplayer")
+        log = self.write("[1] [Render thread/INFO]: Connecting to mc.example.com, 25565\n")
+        watcher = presence.tail_log(log)
+        self.assertEqual(watcher.details(), "Playing on mc.example.com")
+        self.assertEqual(watcher.details(show_server=False), "Playing Multiplayer")
+        log = self.write("[1] Connecting to mc.example.com, 25565\n[2] Stopping server\n")
+        self.assertEqual(presence.tail_log(log).details(), "Main Menu")
+
+    def test_a_missing_log_reads_as_the_main_menu(self):
+        watcher = presence.tail_log(Path(tempfile.mkdtemp()) / "nope.log")
+        self.assertEqual(watcher.details(), "Main Menu")
+
+    def test_only_the_tail_is_read(self):
+        log = self.write("[1] Connecting to old.example.com, 25565\n" + "[2] quiet\n" * 40)
+        self.assertEqual(presence.tail_log(log).details(), "Playing on old.example.com")
+        self.assertEqual(presence.tail_log(log, max_bytes=40).details(), "Main Menu")
+
+    def test_a_line_cut_in_half_is_dropped(self):
+        first = "[1] [Render thread/INFO]: Stopping server\n"
+        second = "[2] [Render thread/INFO]: Connecting to mc.example.com, 25565\n"
+        log = self.write(first + second)
+        # Reading starts 10 bytes into the second line: "Connecting to ..." is
+        # still inside the window, but the line is incomplete, so it must not
+        # become the current server.
+        watcher = presence.tail_log(log, max_bytes=len(second.encode()) - 10)
+        self.assertEqual(watcher.mode, "menu")
+        self.assertIsNone(watcher.server)
+
+
+class DiagnoseTests(unittest.TestCase):
+    def make_instance(self, rpc_mod=False, with_log=True):
+        inst = Path(tempfile.mkdtemp()) / "Cube Warper"
+        mc = inst / "minecraft"
+        (mc / "logs").mkdir(parents=True)
+        (mc / "mods").mkdir()
+        for name in ("a.jar", "b.jar", "c.jar"):
+            (mc / "mods" / name).write_text("", encoding="utf-8")
+        if rpc_mod:
+            (mc / "mods" / "craftpresence-2.7.1.jar").write_text("", encoding="utf-8")
+        (inst / "instance.cfg").write_text(
+            "name=Cube Warper\nManagedPackType=modrinth\nManagedPackID=abc123\n",
+            encoding="utf-8")
+        (inst / "mmc-pack.json").write_text(json.dumps({"components": [
+            {"uid": "net.minecraft", "version": "1.21.1"},
+            {"uid": "net.neoforged", "version": "21.1.9"},
+        ]}), encoding="utf-8")
+        if with_log:
+            (mc / "logs" / "latest.log").write_text(
+                "[1] [Render thread/INFO]: Starting integrated minecraft server "
+                "version 1.21.1\n", encoding="utf-8")
+        return inst
+
+    def test_instance_section(self):
+        inst = self.make_instance()
+        report = diagnose.collect(inst)
+        section = report["instance"]
+        self.assertEqual(section["name"], "Cube Warper")
+        self.assertEqual(section["minecraft"], "1.21.1")
+        self.assertEqual(section["loader"], "NeoForge")
+        self.assertEqual(section["mods"], 3)
+        self.assertFalse(section["rich_presence_mod"])
+        self.assertEqual(section["pack"], {"source": "modrinth", "id": "abc123"})
+        self.assertEqual(section["log"]["status"], "Playing Singleplayer")
+        self.assertIsNone(section["pid_file"])
+        text = "\n".join(diagnose.render(report))
+        for expected in ("Cube Warper", "1.21.1 (NeoForge)", "3 jar(s)",
+                         "Playing Singleplayer", "modrinth abc123"):
+            self.assertIn(expected, text)
+
+    def test_a_running_presence_shows_up_as_a_pid_file(self):
+        inst = self.make_instance()
+        presence.pid_file(inst).write_text("4321", encoding="utf-8")
+        self.assertEqual(diagnose.collect(inst)["instance"]["pid_file"], "4321")
+
+    def test_log_override_and_a_missing_log(self):
+        inst = self.make_instance(with_log=False)
+        other = inst.parent / "other.log"
+        other.write_text("[1] Connecting to other.example.org, 25565\n", encoding="utf-8")
+        report = diagnose.collect(inst, log_path=other)
+        self.assertEqual(report["instance"]["log"]["status"], "Playing on other.example.org")
+        self.assertFalse(diagnose.collect(inst)["instance"]["log"]["exists"])
+        notes = diagnose.problems(diagnose.collect(inst))
+        self.assertTrue(any("latest.log" in note for note in notes))
+
+    def test_json_output_is_plain_data(self):
+        inst = self.make_instance()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = diagnose.run(["--diagnose", str(inst), "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["instance"]["minecraft"], "1.21.1")
+
+    def test_no_instance_given(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = diagnose.run(["--diagnose"])
+        self.assertEqual(code, 0)
+        self.assertIn("Instance: none given", out.getvalue())
+
+    def test_notes_name_the_blockers(self):
+        report = diagnose.collect(self.make_instance(rpc_mod=True))
+        notes = diagnose.problems(report)
+        self.assertTrue(any("Rich Presence mod" in note for note in notes))
+
+        clean = diagnose.collect(self.make_instance())     # nothing installed here
+        clean["modules"]["pypresence"] = True
+        clean["prism"]["config_exists"] = True
+        clean["prism"]["commands"] = {
+            "PreLaunchCommand": {"value": "PrismRPC.exe \"x\"", "ours": True},
+            "PostExitCommand": {"value": "PrismRPC.exe --stop", "ours": True},
+        }
+        clean["settings"]["values"]["enabled"] = True
+        clean["instance"]["enabled"] = True
+        self.assertEqual(diagnose.problems(clean), [])
 
 
 if __name__ == "__main__":
