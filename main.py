@@ -4,12 +4,12 @@ Command line (Prism runs the last two itself; name/dir default to INST_NAME / IN
 
   (no arguments)               Install: copy the app and register it in Prism
                                (close Prism first)
+  --settings                   Open the settings window
   --uninstall                  Remove it from Prism's launch commands
   --stop                       Stop this instance's presence (post-exit hook)
   [--child] [name] [dir]       Start the presence (pre-launch hook)
 """
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +17,7 @@ from pathlib import Path
 
 from presence import (IS_FROZEN, SELF_PATH, resolve_instance, run, self_cmd,
                       stop_instance)
+from settings import cfg_get, cfg_set, data_dir, prism_cfg_path, prism_running
 
 
 # --- small UI helpers ---------------------------------------------------------
@@ -39,6 +40,7 @@ def pause():
             pass
 
 
+# --- installing the program -----------------------------------------------------
 def install_permanent_copy():
     """Copy the program into %LOCALAPPDATA%\\PrismRPC\\app and return the exe path.
 
@@ -48,7 +50,7 @@ def install_permanent_copy():
     """
     if not IS_FROZEN:
         return SELF_PATH
-    root = Path(os.environ.get("LOCALAPPDATA") or Path.home(), "PrismRPC")
+    root = data_dir()
     dest = root / "app"
     payload = Path(getattr(sys, "_MEIPASS", ""), "payload")
     source = payload if payload.is_dir() else SELF_PATH.parent
@@ -61,109 +63,70 @@ def install_permanent_copy():
     return dest / "PrismRPC.exe"
 
 
-# --- Prism config handling ------------------------------------------------------
-def prism_cfg_path():
-    if os.name == "nt":
-        base = os.environ.get("APPDATA")
-        return Path(base, "PrismLauncher", "prismlauncher.cfg") if base else None
-    if sys.platform == "darwin":
-        return Path.home() / "Library/Application Support/PrismLauncher/prismlauncher.cfg"
-    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
-    return Path(data, "PrismLauncher", "prismlauncher.cfg")
-
-
-def prism_running():
-    try:
-        if os.name == "nt":
-            out = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq prismlauncher.exe"],
-                capture_output=True, text=True, creationflags=0x08000000,
-            ).stdout.lower()
-            return "prismlauncher.exe" in out
-        return subprocess.run(["pgrep", "-fi", "prismlauncher"],
-                              capture_output=True).returncode == 0
-    except Exception:
-        return False
-
-
-def qt_escape(value):
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def qt_unescape(value):
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        value = value[1:-1]
-    return re.sub(r"\\(.)", r"\1", value)
-
-
-def general_range(lines):
-    """(start, end) line indexes of the body of the [General] section."""
-    start = next((i for i, l in enumerate(lines) if l.strip() == "[General]"), None)
-    if start is None:
+def shortcut_path():
+    base = os.environ.get("APPDATA")
+    if os.name != "nt" or not base:
         return None
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("["):
-            end = i
-            break
-    return start + 1, end
+    return Path(base, "Microsoft", "Windows", "Start Menu", "Programs",
+                "PrismRPC Settings.lnk")
 
 
-def cfg_get(lines, key):
-    rng = general_range(lines)
-    if rng:
-        for i in range(*rng):
-            if lines[i].startswith(key + "="):
-                return qt_unescape(lines[i][len(key) + 1:])
-    return ""
+def make_shortcut(exe):
+    """Start Menu entry that opens the settings window (best effort)."""
+    lnk = shortcut_path()
+    if not lnk or not exe.is_file():
+        return
+    ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:PRISMRPC_LNK);"
+          "$s.TargetPath=$env:PRISMRPC_EXE;$s.Arguments='--settings';"
+          "$s.IconLocation=$env:PRISMRPC_EXE;$s.Save()")
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            env=dict(os.environ, PRISMRPC_LNK=str(lnk), PRISMRPC_EXE=str(exe)),
+            capture_output=True, timeout=20, creationflags=0x08000000)
+    except Exception:
+        pass
 
 
-def cfg_set(lines, key, value):
-    """Set (or remove when value is None) a key inside [General]."""
-    rng = general_range(lines)
-    if rng is None:
-        if value is None:
-            return
-        lines.extend(["[General]"])
-        rng = (len(lines), len(lines))
-    for i in range(*rng):
-        if lines[i].startswith(key + "="):
-            if value is None:
-                del lines[i]
-            else:
-                lines[i] = f"{key}={qt_escape(value)}"
-            return
-    if value is not None:
-        lines.insert(rng[0], f"{key}={qt_escape(value)}")
+def remove_shortcut():
+    lnk = shortcut_path()
+    if lnk:
+        try:
+            lnk.unlink()
+        except OSError:
+            pass
 
 
+# --- Prism config handling ------------------------------------------------------
 def is_ours(value):
     v = value.lower().replace("_", "")
     return bool(value) and ("prismrpc" in v or SELF_PATH.name.lower() in value.lower())
 
 
 def edit_prism_cfg(install):
+    """Add or remove our commands in Prism's config. Returns the exe path on
+    success when installing, True on success when uninstalling, else None."""
     cfg = prism_cfg_path()
     if not cfg or not cfg.is_file():
         say("Could not find prismlauncher.cfg. Start Prism Launcher once, close it, then try again.")
-        return False
+        return None
     if prism_running():
         say("Prism Launcher is running and would overwrite the change when it closes.\n"
             "Close Prism completely and run this again.")
-        return False
+        return None
 
     text = cfg.read_text(encoding="utf-8")
     eol = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
 
+    exe = None
     pre_new = post_new = None
     if install:
         try:
             exe = install_permanent_copy()
         except OSError as e:
             say(f"Could not copy PrismRPC to its permanent folder: {e}")
-            return False
+            return None
         pre_new = subprocess.list2cmdline(self_cmd(exe))
         post_new = subprocess.list2cmdline(self_cmd(exe) + ["--stop"])
 
@@ -173,14 +136,44 @@ def edit_prism_cfg(install):
             say(f"{key} is already set to:\n  {current}\n"
                 "Not overwriting it. Clear it in Prism's settings (Settings > Custom Commands) "
                 "or chain the commands yourself.")
-            return False
+            return None
         cfg_set(lines, key, new)
 
     cfg.with_suffix(".cfg.bak").write_text(text, encoding="utf-8")
     cfg.write_text(eol.join(lines) + eol, encoding="utf-8")
-    say("PrismRPC installed. Start Prism and launch an instance." if install
-        else "PrismRPC removed from Prism's launch commands.")
-    return True
+    return exe if install else True
+
+
+def do_install():
+    exe = edit_prism_cfg(install=True)
+    if not exe:
+        return
+    make_shortcut(exe)
+    say("PrismRPC is installed.\n\n"
+        "Start Prism and launch an instance. To change options later, open "
+        "\"PrismRPC Settings\" from the Start menu, or use the tray icon while playing.")
+    try:  # first-run: show the settings window right away
+        subprocess.Popen([str(exe), "--settings"], close_fds=True,
+                         creationflags=0x00000008 if os.name == "nt" else 0)
+    except Exception:
+        pass
+
+
+def do_uninstall():
+    if edit_prism_cfg(install=False):
+        remove_shortcut()
+        say("PrismRPC removed from Prism's launch commands.\n"
+            "You can now delete the %LOCALAPPDATA%\\PrismRPC folder.")
+
+
+def open_settings():
+    try:
+        import gui
+        gui.open_window()
+    except ImportError:
+        say("The settings window needs tkinter and customtkinter "
+            "(pip install -r requirements.txt).\n"
+            f"Edit {data_dir() / 'settings.json'} instead.")
 
 
 # --- entry point ----------------------------------------------------------------
@@ -188,11 +181,13 @@ def main():
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     launched_by_prism = "INST_DIR" in os.environ
 
-    if "--uninstall" in flags:
-        edit_prism_cfg(install=False)
+    if "--settings" in flags:
+        open_settings()
+    elif "--uninstall" in flags:
+        do_uninstall()
         pause()
     elif "--install" in flags or (len(sys.argv) == 1 and not launched_by_prism):
-        edit_prism_cfg(install=True)
+        do_install()
         pause()
     elif "--stop" in flags:
         stop_instance(resolve_instance()[1])
