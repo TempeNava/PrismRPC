@@ -103,6 +103,9 @@ def remove_shortcut():
 
 
 # --- Prism config handling ------------------------------------------------------
+CMD_KEYS = ("PreLaunchCommand", "PostExitCommand")
+
+
 def edit_prism_cfg(install):
     """Add or remove our commands in Prism's config. Returns the exe path on
     success when installing, True on success when uninstalling, else None."""
@@ -115,9 +118,25 @@ def edit_prism_cfg(install):
             "Close Prism completely and run this again.")
         return None
 
-    text = cfg.read_text(encoding="utf-8")
+    # Read bytes so the line endings survive (read_text() would turn CRLF into LF).
+    try:
+        raw = cfg.read_bytes()
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        say(f"Could not read {cfg}: {e}")
+        return None
     eol = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
+
+    # Check for the user's own commands BEFORE copying anything, so a refused
+    # install doesn't leave a copy of the app behind.
+    for key in CMD_KEYS:
+        current = cfg_get(lines, key)
+        if current and not is_ours(current):
+            say(f"{key} is already set to:\n  {current}\n"
+                "Not overwriting it. Clear it in Prism's settings (Settings > Custom Commands) "
+                "or chain the commands yourself.")
+            return None
 
     exe = None
     pre_new = post_new = None
@@ -125,22 +144,25 @@ def edit_prism_cfg(install):
         try:
             exe = install_permanent_copy()
         except OSError as e:
-            say(f"Could not copy PrismRPC to its permanent folder: {e}")
+            say(f"Could not copy PrismRPC to its permanent folder: {e}\n"
+                "If a game or the settings window is open, close it and try again.")
             return None
         pre_new = subprocess.list2cmdline(self_cmd(exe))
         post_new = subprocess.list2cmdline(self_cmd(exe) + ["--stop"])
 
-    for key, new in (("PreLaunchCommand", pre_new), ("PostExitCommand", post_new)):
-        current = cfg_get(lines, key)
-        if current and not is_ours(current):
-            say(f"{key} is already set to:\n  {current}\n"
-                "Not overwriting it. Clear it in Prism's settings (Settings > Custom Commands) "
-                "or chain the commands yourself.")
-            return None
+    for key, new in zip(CMD_KEYS, (pre_new, post_new)):
         cfg_set(lines, key, new)
 
-    cfg.with_suffix(".cfg.bak").write_text(text, encoding="utf-8")
-    cfg.write_text(eol.join(lines) + eol, encoding="utf-8")
+    try:
+        bak = cfg.with_suffix(".cfg.bak")
+        if not bak.exists():              # keep the very first backup
+            bak.write_bytes(raw)
+        tmp = cfg.with_name(cfg.name + ".tmp")
+        tmp.write_bytes((eol.join(lines) + eol).encode("utf-8"))
+        os.replace(tmp, cfg)              # atomic: Prism never sees a half-written file
+    except OSError as e:
+        say(f"Could not write {cfg}: {e}")
+        return None
     return exe if install else True
 
 

@@ -59,8 +59,12 @@ def resolve_instance():
 
 def is_ours(value):
     """True when a Prism launch command is one of our own (so we may replace it)."""
-    v = value.lower().replace("_", "")
-    return bool(value) and ("prismrpc" in v or SELF_PATH.name.lower() in value.lower())
+    if not value:
+        return False
+    low = value.lower()
+    # Frozen builds are named PrismRPC.exe. From source, match the full path to
+    # this script rather than the bare name "main.py", which other tools use too.
+    return "prismrpc" in low.replace("_", "") or str(SELF_PATH).lower() in low
 
 
 def find_mc_dir(inst_dir):
@@ -124,17 +128,38 @@ def read_pack_info(inst_dir):
     return mc_version, loader
 
 
+def saved_playtime(inst_dir):
+    """Seconds Prism has recorded for the instance (it updates this when the game closes)."""
+    try:
+        text = (inst_dir / "instance.cfg").read_text(encoding="utf-8")
+        m = re.search(r"^totalTimePlayed=(\d+)", text, re.M)
+        return int(m.group(1)) if m else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def format_playtime(seconds):
+    """Short text that changes slowly ("25 min", "3.4 h", "52 h"), so the status
+    is not re-sent to Discord every minute."""
+    if seconds < 3600:
+        return f"{max(int(seconds // 60), 1)} min"
+    hours = seconds / 3600
+    return f"{hours:.1f} h" if hours < 10 else f"{round(hours)} h"
+
+
 # --- game status from latest.log (read incrementally) -----------------------
 class LogWatcher:
     CONNECT = re.compile(r"Connecting to ([^,\s]+), (\d+)")
     START = ("Starting integrated minecraft server",)
     LEAVE = ("Stopping singleplayer server", "Stopping server", "Stopping!", "Disconnecting")
+    HEAD_BYTES = 128
 
     def __init__(self, path, started_at):
         self.path = path
         self.started_at = started_at
         self.pos = 0
         self.ino = None
+        self.head = b""             # first bytes of the file we are following
         self.first = True
         self.mode = "menu"          # menu | single | multi
         self.server = None
@@ -143,6 +168,19 @@ class LogWatcher:
     def _set(self, mode, server=None):
         if (mode, server) != (self.mode, self.server):
             self.mode, self.server, self.since = mode, server, time.time()
+
+    def _read_head(self):
+        try:
+            with open(self.path, "rb") as f:
+                return f.read(self.HEAD_BYTES)
+        except OSError:
+            return b""
+
+    def _head_changed(self):
+        if not self.head:
+            return False
+        # A rotated or truncated file no longer starts with what we saw before.
+        return not self._read_head().startswith(self.head)
 
     def poll(self):
         try:
@@ -155,10 +193,12 @@ class LogWatcher:
             if st.st_mtime < self.started_at - 2:
                 # Leftover log from a previous session: ignore its content.
                 self.pos = st.st_size
+                self.head = self._read_head()
                 return
-        elif st.st_ino != self.ino or st.st_size < self.pos:
+        elif (st.st_ino != self.ino or st.st_size < self.pos
+              or self._head_changed()):
             # Log was rotated by a new game start.
-            self.ino, self.pos = st.st_ino, 0
+            self.ino, self.pos, self.head = st.st_ino, 0, b""
             self._set("menu")
         if st.st_size == self.pos:
             return
@@ -172,6 +212,8 @@ class LogWatcher:
         if end == -1:
             return  # incomplete line, wait for the rest
         self.pos += end + 1
+        if len(self.head) < self.HEAD_BYTES:
+            self.head = self._read_head()
         for line in chunk[:end].decode("utf-8", "ignore").splitlines():
             self._handle(line)
 
@@ -233,6 +275,11 @@ class Session:
         self.update = None               # (tag, url) when a newer release exists
         self.on_change = lambda: None    # tray hooks these in
         self.notify = lambda message: None
+        self.launched = time.time()      # when this presence started (about the game launch)
+        self.base_seconds = 0            # Prism's saved total, read once at start
+
+    def total_seconds(self):
+        return self.base_seconds + (time.time() - self.launched)
 
 
 def build_activity(session, s, watcher, mc_version, loader, mod_count, launched):
@@ -244,6 +291,8 @@ def build_activity(session, s, watcher, mc_version, loader, mod_count, launched)
         "state": state,
         "large_text": session.name,
     }
+    if s["show_total_time"]:  # shown when hovering the pack icon
+        activity["large_text"] += f" • {format_playtime(session.total_seconds())} played in total"
     icon = session.pack.get("icon")
     if icon:
         activity.update(large_image=icon, small_image=FALLBACK_IMAGE, small_text=loader)
@@ -274,12 +323,13 @@ def presence_loop(session, live, mc_dir, mod_count, mc_version, loader, my_pid):
     asyncio.set_event_loop(loop)
 
     pf = pid_file(session.inst_dir)
-    launched = time.time()
+    launched = session.launched
     watcher = LogWatcher(mc_dir / "logs" / "latest.log", launched)
     rpc = None
     sent = None                      # activity currently shown on Discord (None = cleared)
     last_sent = last_attempt = 0.0
     supports_name = True
+    replaced = False                 # True when a newer session took over this instance
 
     def send(activity):
         nonlocal supports_name
@@ -296,8 +346,11 @@ def presence_loop(session, live, mc_dir, mod_count, mc_version, loader, my_pid):
 
     while not session.stop.is_set():
         try:
-            if not pf.exists() or pf.read_text().strip() != my_pid:
+            if not pf.exists():
                 break  # stopped by the post-exit command
+            if pf.read_text().strip() != my_pid:
+                replaced = True  # a newer process owns this instance now
+                break
 
             s = live.get()
             watcher.poll()
@@ -308,12 +361,18 @@ def presence_loop(session, live, mc_dir, mod_count, mc_version, loader, my_pid):
 
             if rpc is None and desired is not None and now - last_attempt >= RECONNECT_INTERVAL:
                 last_attempt = now
+                candidate = None
                 try:
                     candidate = Presence(CLIENT_ID, loop=loop)
                     candidate.connect()
                     rpc, sent = candidate, None
                 except Exception:
                     rpc = None  # Discord not running yet
+                    if candidate is not None:
+                        try:
+                            candidate.close()  # don't leak a half-open connection
+                        except Exception:
+                            pass
 
             if rpc is not None and desired != sent:
                 # Clearing is immediate; updates are rate-limited.
@@ -333,10 +392,15 @@ def presence_loop(session, live, mc_dir, mod_count, mc_version, loader, my_pid):
 
     if rpc is not None:
         try:
-            rpc.clear()
+            if not replaced:
+                rpc.clear()
             rpc.close()
         except Exception:
             pass
+    try:
+        loop.close()
+    except Exception:
+        pass
 
 
 def start_lookups(session, live):
@@ -392,6 +456,7 @@ def run(is_child):
         return
 
     session = Session(name, inst_dir)
+    session.base_seconds = saved_playtime(inst_dir)
     pf = pid_file(inst_dir)
     my_pid = str(os.getpid())
     pf.write_text(my_pid)

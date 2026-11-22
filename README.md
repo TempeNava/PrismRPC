@@ -6,11 +6,14 @@ PrismRPC shows your Prism instance name, the Minecraft version and loader, your 
 
 ![PrismRPC status on a Discord profile](docs/screenshot.png)
 
+![PrismRPC status on a Discord profile](docs/image.png)
+
 ## Features
 
 - **Instance name as the title.** Your profile shows e.g. *Cube Warper* instead of a generic "Minecraft".
 - **Live status.** Reads the game log to switch between `Main Menu`, `Playing Singleplayer` and `Playing on <server>`.
 - **Play-time timer.** Counts since the game launched, or since you joined a world or server (your choice).
+- **Total play time per modpack.** Hover the pack icon on your profile to see how long you've played that instance in total (Prism's own count plus the current session), and see it at the top of the tray menu.
 - **Pack icon and "View modpack" button** for modpacks installed through Prism from **Modrinth** or **CurseForge**.
 - **Tray icon while playing** with *Pause status*, *Settings* and *Quit*.
 - **Settings window** (Start menu → *PrismRPC Settings*). Changes apply to running games straight away.
@@ -60,6 +63,7 @@ When an instance starts, Prism runs PrismRPC as its pre-launch command. It start
 | Check for new versions | Daily update check |
 | Server address | `Playing on <server>` vs `Playing Multiplayer` |
 | Number of mods | Show the mod count |
+| Total play time | Show the instance's total play time when hovering the pack icon |
 | "View modpack" button | Shown to other people on your profile (Discord doesn't show you your own buttons) |
 | Timer | Since launch / since joining a world / hidden |
 | Instances | Untick an instance to hide its status |

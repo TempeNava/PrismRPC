@@ -15,6 +15,7 @@ DEFAULTS = {
     "show_tray": True,            # tray icon while a game is running
     "show_server_address": True,  # "Playing on <server>" vs "Playing Multiplayer"
     "show_mod_count": True,
+    "show_total_time": True,      # total play time in the pack icon's hover text
     "show_button": True,          # "View modpack" button
     "timer": "game",              # game | world | off
     "check_updates": True,

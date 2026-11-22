@@ -77,6 +77,7 @@ def open_window():
     # --- Display --------------------------------------------------------------
     switch_row(display, "show_server_address", "Server address", "Show the server you're on instead of just \"Multiplayer\".")
     switch_row(display, "show_mod_count", "Number of mods")
+    switch_row(display, "show_total_time", "Total play time", "Shown when you hover the pack icon.")
     switch_row(display, "show_button", "\"View modpack\" button", "Others see it on your profile; Discord hides it from you.")
     ctk.CTkLabel(display, text="Timer", anchor="w").pack(anchor="w", pady=(14, 4))
     seg = ctk.CTkSegmentedButton(

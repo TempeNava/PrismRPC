@@ -408,5 +408,37 @@ class DiagnoseTests(unittest.TestCase):
         self.assertEqual(diagnose.problems(clean), [])
 
 
+class PlaytimeTests(unittest.TestCase):
+    def inst(self, cfg_text):
+        d = Path(tempfile.mkdtemp())
+        (d / "instance.cfg").write_text(cfg_text)
+        return d
+
+    def test_saved_playtime(self):
+        self.assertEqual(presence.saved_playtime(self.inst("name=X\ntotalTimePlayed=187200\n")), 187200)
+        self.assertEqual(presence.saved_playtime(self.inst("name=X\n")), 0)           # never played
+        self.assertEqual(presence.saved_playtime(self.inst("totalTimePlayed=abc\n")), 0)
+        self.assertEqual(presence.saved_playtime(Path(tempfile.mkdtemp())), 0)         # no instance.cfg
+
+    def test_format_playtime(self):
+        self.assertEqual(presence.format_playtime(5), "1 min")
+        self.assertEqual(presence.format_playtime(25 * 60), "25 min")
+        self.assertEqual(presence.format_playtime(3.4 * 3600), "3.4 h")
+        self.assertEqual(presence.format_playtime(52 * 3600 + 600), "52 h")
+
+    def test_total_in_hover_text_and_setting(self):
+        inst = Path(tempfile.mkdtemp())
+        sess = presence.Session("Pack", inst)
+        sess.base_seconds = 52 * 3600
+        w = presence.LogWatcher(inst / "latest.log", 0.0)
+        s = dict(settings.DEFAULTS)
+        a = presence.build_activity(sess, s, w, "1.21", "Fabric", 3, sess.launched)
+        self.assertEqual(a["large_text"], "Pack • 52 h played in total")
+        a = presence.build_activity(sess, dict(s, show_total_time=False), w, "1.21", "Fabric", 3, sess.launched)
+        self.assertEqual(a["large_text"], "Pack")
+        sess.launched -= 2 * 3600            # two hours into this session: the total grows
+        self.assertAlmostEqual(sess.total_seconds(), 54 * 3600, delta=5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

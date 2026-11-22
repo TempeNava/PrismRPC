@@ -2,7 +2,7 @@
 import threading
 import webbrowser
 
-from presence import spawn
+from presence import format_playtime, spawn
 from settings import resource_path
 
 
@@ -39,7 +39,9 @@ def run(session, worker):
         _icon.stop()
 
     menu = pystray.Menu(
-        pystray.MenuItem(session.name, lambda *_: None, enabled=False),
+        pystray.MenuItem(
+            lambda _item: f"{session.name} - {format_playtime(session.total_seconds())} played",
+            lambda *_: None, enabled=False),
         pystray.MenuItem("Pause status", toggle_pause,
                          checked=lambda _item: session.paused),
         pystray.MenuItem(lambda _item: f"Update available: {session.update[0]}",
