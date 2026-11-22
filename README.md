@@ -4,6 +4,8 @@ Discord Rich Presence for [Prism Launcher](https://prismlauncher.org/), with no 
 
 PrismRPC shows your Prism instance name, the Minecraft version and loader, your mod count, and whether you're on the main menu, in singleplayer or on a server. It installs once and then works for every instance.
 
+![PrismRPC status on a Discord profile](docs/screenshot.png)
+
 ## Features
 
 - **Instance name as the title.** Your profile shows e.g. *Cube Warper* instead of a generic "Minecraft".
@@ -90,3 +92,21 @@ For development, `python main.py --settings` opens the settings window and `pyth
 ## Platform support
 
 Windows only. The Python source also contains Linux and macOS paths for Prism's config but this has not been tested.
+
+Only **Prism Launcher** is supported. It relies on Prism's pre-launch and post-exit commands, which other launchers (such as the CurseForge app) don't offer.
+
+## About this project
+
+I started PrismRPC as a small script of my own, because I wanted a Discord status for my modpacks without installing a Rich Presence mod in every one. The first version was my own code. Much of the later work, including restructuring it, the installer, the tray icon and the settings window, was done with the help from AI. I run and test it on my own setup, and I'll do my best to maintain it. All the source is here, so you can read exactly what it does.
+
+## Reporting problems and contributing
+
+Found a bug or have an idea? Please [open an issue](../../issues). Say which Prism and Windows version you use, and what happened. Pull requests are welcome too.
+
+## License
+
+[MIT](LICENSE)
+
+## Disclaimer
+
+PrismRPC is an unofficial fan project. It is not affiliated with or endorsed by Mojang, Microsoft, Prism Launcher, Modrinth, CurseForge or Discord. Minecraft is a trademark of Mojang AB. The anvil icon is based on a Minecraft texture.
