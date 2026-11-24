@@ -61,7 +61,7 @@ When an instance starts, Prism runs PrismRPC as its pre-launch command. It start
 | Enable PrismRPC | Master switch |
 | Tray icon | Show the tray icon while playing (applies next launch) |
 | Check for new versions | Daily update check |
-| Server address | `Playing on <server>` vs `Playing Multiplayer` |
+| Server address | `Playing on <server>` vs `Playing Multiplayer` (off by default, so private servers stay private) |
 | Number of mods | Show the mod count |
 | Total play time | Show the instance's total play time when hovering the pack icon |
 | "View modpack" button | Shown to other people on your profile (Discord doesn't show you your own buttons) |
