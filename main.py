@@ -144,8 +144,10 @@ def edit_prism_cfg(install):
         try:
             exe = install_permanent_copy()
         except OSError as e:
-            say(f"Could not copy PrismRPC to its permanent folder: {e}\n"
-                "If a game or the settings window is open, close it and try again.")
+            why = "some files are in use" if isinstance(e, shutil.Error) else e
+            say(f"PrismRPC could not be installed ({why}).\n\n"
+                "Close PrismRPC (its settings window or tray icon) and any running "
+                "Minecraft game, then run the installer again.")
             return None
         pre_new = subprocess.list2cmdline(self_cmd(exe))
         post_new = subprocess.list2cmdline(self_cmd(exe) + ["--stop"])

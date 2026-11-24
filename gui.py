@@ -75,7 +75,7 @@ def open_window():
     switch_row(general, "check_updates", "Check for new versions")
 
     # --- Display --------------------------------------------------------------
-    switch_row(display, "show_server_address", "Server address", "Show the server you're on instead of just \"Multiplayer\".")
+    switch_row(display, "show_server_address", "Server address", "Warning: shows the server's address on your profile. Keep it off for private servers.")
     switch_row(display, "show_mod_count", "Number of mods")
     switch_row(display, "show_total_time", "Total play time", "Shown when you hover the pack icon.")
     switch_row(display, "show_button", "\"View modpack\" button", "Others see it on your profile; Discord hides it from you.")
