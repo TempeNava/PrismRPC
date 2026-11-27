@@ -218,6 +218,8 @@ class LogWatcher:
             self._handle(line)
 
     def _handle(self, line):
+        if "[CHAT]" in line:
+            return
         m = self.CONNECT.search(line)
         if m:
             self._set("multi", m.group(1))

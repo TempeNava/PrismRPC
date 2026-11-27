@@ -8,6 +8,7 @@ prints the facts plus the reasons a status might not be showing up.
 """
 import importlib.util
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -31,7 +32,7 @@ def _has_module(name):
         return False
 
 
-def log_report(path):
+def log_report(path, show_server=False):
     """What the instance's latest.log adds up to right now."""
     path = Path(path)
     report = {"path": str(path), "exists": path.is_file()}
@@ -42,8 +43,9 @@ def log_report(path):
         report["size"] = path.stat().st_size
     except OSError:
         report["size"] = 0
-    report.update(mode=watcher.mode, server=watcher.server,
-                  status=watcher.details())
+    report.update(mode=watcher.mode,
+                  server=watcher.server if show_server else None,
+                  status=watcher.details(show_server))
     return report
 
 
@@ -87,7 +89,8 @@ def instance_report(inst_dir):
         "rich_presence_mod": has_rpc_mod,
         "pid_file": pf.read_text().strip() if pf.is_file() else None,
         "pack": {"source": source, "id": pid} if source else None,
-        "log": log_report(mc_dir / "logs" / "latest.log"),
+        "log": log_report(mc_dir / "logs" / "latest.log",
+                          st.load()["show_server_address"]),
     }
 
 
@@ -111,7 +114,7 @@ def collect(inst_dir=None, log_path=None):
     if report["instance"]:
         report["instance"]["enabled"] = st.instance_enabled(s, report["instance"]["key"])
         if log_path:
-            report["instance"]["log"] = log_report(log_path)
+            report["instance"]["log"] = log_report(log_path, s["show_server_address"])
     return report
 
 
@@ -222,8 +225,13 @@ def run(argv):
         print(f"--diagnose: no such instance folder: {dirs[0]}", file=sys.stderr)
         return 2
     report = collect(Path(dirs[0]) if dirs else None, log_path)
-    if want_json:
-        print(json.dumps(report, indent=2))
+    text = json.dumps(report, indent=2) if want_json else "\n".join(render(report))
+    if sys.stdout is None:
+        out = st.data_dir() / "diagnose.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        if hasattr(os, "startfile"):
+            os.startfile(out)
     else:
-        print("\n".join(render(report)))
+        print(text)
     return 0

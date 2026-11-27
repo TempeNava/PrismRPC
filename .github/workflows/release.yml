@@ -1,0 +1,26 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches VERSION
+        run: py -c "import os, config; assert os.environ['GITHUB_REF_NAME'] == 'v' + config.VERSION"
+      - run: py -m pip install -r requirements.txt
+      - run: py test_prismrpc.py
+      - run: cmd /c "build.bat < nul"
+      - name: Hash the installer
+        run: (Get-FileHash dist/PrismRPC-Setup.exe).Hash + "  PrismRPC-Setup.exe" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/PrismRPC-Setup.exe
+      - run: gh release create $env:GITHUB_REF_NAME dist/PrismRPC-Setup.exe dist/SHA256SUMS.txt --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

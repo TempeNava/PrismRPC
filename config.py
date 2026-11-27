@@ -1,6 +1,6 @@
 """Fixed constants. User-facing options live in settings.py / the settings window."""
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # Discord application ID. If you fork this, create your own application at
 # https://discord.com/developers/applications, upload a Rich Presence art asset

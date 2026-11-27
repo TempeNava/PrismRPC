@@ -132,7 +132,7 @@ def edit_prism_cfg(install):
     # install doesn't leave a copy of the app behind.
     for key in CMD_KEYS:
         current = cfg_get(lines, key)
-        if current and not is_ours(current):
+        if install and current and not is_ours(current):
             say(f"{key} is already set to:\n  {current}\n"
                 "Not overwriting it. Clear it in Prism's settings (Settings > Custom Commands) "
                 "or chain the commands yourself.")
@@ -153,15 +153,16 @@ def edit_prism_cfg(install):
         post_new = subprocess.list2cmdline(self_cmd(exe) + ["--stop"])
 
     for key, new in zip(CMD_KEYS, (pre_new, post_new)):
-        cfg_set(lines, key, new)
+        if install or is_ours(cfg_get(lines, key)):
+            cfg_set(lines, key, new)
 
     try:
         bak = cfg.with_suffix(".cfg.bak")
-        if not bak.exists():              # keep the very first backup
+        if not bak.exists():
             bak.write_bytes(raw)
         tmp = cfg.with_name(cfg.name + ".tmp")
         tmp.write_bytes((eol.join(lines) + eol).encode("utf-8"))
-        os.replace(tmp, cfg)              # atomic: Prism never sees a half-written file
+        os.replace(tmp, cfg)
     except OSError as e:
         say(f"Could not write {cfg}: {e}")
         return None
@@ -206,7 +207,7 @@ def main():
     launched_by_prism = "INST_DIR" in os.environ
 
     if "--version" in flags:
-        print(f"PrismRPC {VERSION}")
+        say(f"PrismRPC {VERSION}")
     elif "--diagnose" in flags:
         import diagnose
         return diagnose.run(sys.argv[1:])

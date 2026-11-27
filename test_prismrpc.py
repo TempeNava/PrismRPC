@@ -300,6 +300,12 @@ class LogTailTests(unittest.TestCase):
         log = self.write("[1] Connecting to mc.example.com, 25565\n[2] Stopping server\n")
         self.assertEqual(presence.tail_log(log).details(), "Main Menu")
 
+    def test_chat_cannot_change_the_status(self):
+        log = self.write("[1] Connecting to mc.example.com, 25565\n"
+                         "[2] [System] [CHAT] <bob> Connecting to bob-was-here, 1\n"
+                         "[3] [System] [CHAT] <bob> Disconnecting\n")
+        self.assertEqual(presence.tail_log(log).details(), "Playing on mc.example.com")
+
     def test_a_missing_log_reads_as_the_main_menu(self):
         watcher = presence.tail_log(Path(tempfile.mkdtemp()) / "nope.log")
         self.assertEqual(watcher.details(), "Main Menu")
@@ -371,7 +377,8 @@ class DiagnoseTests(unittest.TestCase):
         other = inst.parent / "other.log"
         other.write_text("[1] Connecting to other.example.org, 25565\n", encoding="utf-8")
         report = diagnose.collect(inst, log_path=other)
-        self.assertEqual(report["instance"]["log"]["status"], "Playing on other.example.org")
+        self.assertEqual(report["instance"]["log"]["status"], "Playing Multiplayer")
+        self.assertNotIn("other.example.org", json.dumps(report))  # address hidden by default
         self.assertFalse(diagnose.collect(inst)["instance"]["log"]["exists"])
         notes = diagnose.problems(diagnose.collect(inst))
         self.assertTrue(any("latest.log" in note for note in notes))
@@ -406,6 +413,18 @@ class DiagnoseTests(unittest.TestCase):
         clean["settings"]["values"]["enabled"] = True
         clean["instance"]["enabled"] = True
         self.assertEqual(diagnose.problems(clean), [])
+
+
+class UninstallTests(unittest.TestCase):
+    def test_removes_ours_and_keeps_the_users_command(self):
+        import main
+        cfg = Path(tempfile.mkdtemp()) / "prismlauncher.cfg"
+        cfg.write_text("[General]\nPreLaunchCommand=PrismRPC.exe\nPostExitCommand=mine.bat\n")
+        for name, fake in (("prism_cfg_path", lambda: cfg), ("prism_running", lambda: False)):
+            self.addCleanup(setattr, main, name, getattr(main, name))
+            setattr(main, name, fake)
+        self.assertTrue(main.edit_prism_cfg(install=False))
+        self.assertEqual(cfg.read_text(), "[General]\nPostExitCommand=mine.bat\n")
 
 
 class PlaytimeTests(unittest.TestCase):

@@ -16,7 +16,7 @@ PrismRPC shows your Prism instance name, the Minecraft version and loader, your 
 - **Total play time per modpack.** Hover the pack icon on your profile to see how long you've played that instance in total (Prism's own count plus the current session), and see it at the top of the tray menu.
 - **Pack icon and "View modpack" button** for modpacks installed through Prism from **Modrinth** or **CurseForge**.
 - **Tray icon while playing** with *Pause status*, *Settings* and *Quit*.
-- **Settings window** (Start menu → *PrismRPC Settings*). Changes apply to running games straight away.
+- **Settings window** (Start menu → *PrismRPC Settings*). Changes apply to running games straight away, except that turning PrismRPC or an instance back on applies from the next launch if it was off when the game started.
 - **Per-instance on/off.** Hide your status for the instances you don't want to share.
 - **Update check.** Tells you when a new release is out.
 - **Stays out of the way.** If an instance already has a Rich Presence mod (CraftPresence, Simple RPC, ...), PrismRPC does nothing for that instance.
@@ -92,7 +92,8 @@ PrismRPC is an unsigned program, so Windows SmartScreen warns about it, and a fe
 I can't promise a scanner will never flag it, but you don't have to take my word for it:
 
 - **Read the source.** It's all in this repo, and everything it does is described above.
-- **Build it yourself** with `build.bat` and compare.
+- **Build it yourself** with `build.bat`.
+- **Check your download** (releases from 1.2.2). `Get-FileHash PrismRPC-Setup.exe` in PowerShell should print the hash in the release's `SHA256SUMS.txt`. With the [GitHub CLI](https://cli.github.com), `gh attestation verify PrismRPC-Setup.exe --repo TempeNava/PrismRPC` also confirms that GitHub Actions built the file from this repo.
 - **VirusTotal scan:** [view the scan](https://www.virustotal.com/gui/file/aab0949fec1c2c17c05ed908c28c74fb22582a8dba7ca0234436c6a52804d8bb/)
 
 ## Troubleshooting
@@ -111,6 +112,8 @@ I can't promise a scanner will never flag it, but you don't have to take my word
 "%LOCALAPPDATA%\PrismRPC\app\PrismRPC.exe" --diagnose "%APPDATA%\PrismLauncher\instances\Cube Warper"
 ```
 
+If nothing prints, the report opens as a text file instead (`%LOCALAPPDATA%\PrismRPC\diagnose.txt`). It leaves out the server address unless that setting is on.
+
 It lists the settings, Prism's Pre-launch/Post-exit commands, the instance's version, loader and mod count, and the status it reads out of `logs/latest.log`, then ends with the things to check: PrismRPC switched off, the instance unticked, a Rich Presence mod installed, a missing launch command, `pypresence` not installed. Add `--json` for a machine-readable report, or `--log FILE` to read a log from somewhere else. `--version` prints the version on its own.
 
 ## Platform support
@@ -121,7 +124,7 @@ Only **Prism Launcher** is supported. It relies on Prism's pre-launch and post-e
 
 ## About this project
 
-I started PrismRPC as a small script of my own, because I wanted a Discord status for my modpacks without installing a Rich Presence mod in every one. The first version was my own code. Much of the later work, including restructuring it, the installer, the tray icon and the settings window, was done with of help from AI. I run and test it on my own setup, and I'll do my best to maintain it. All the source is here, so you can read exactly what it does.
+I started PrismRPC as a small script of my own, because I wanted a Discord status for my modpacks without installing a Rich Presence mod in every one. The first version was my own code. Much of the later work, including restructuring it, the installer, the tray icon and the settings window, was done with help from AI. I run and test it on my own setup, and I'll do my best to maintain it. All the source is here, so you can read exactly what it does.
 
 ## Reporting problems and contributing
 
