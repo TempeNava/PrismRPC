@@ -94,7 +94,7 @@ I can't promise a scanner will never flag it, but you don't have to take my word
 - **Read the source.** It's all in this repo, and everything it does is described above.
 - **Build it yourself** with `build.bat`.
 - **Check your download** (releases from 1.2.2). `Get-FileHash PrismRPC-Setup.exe` in PowerShell should print the hash in the release's `SHA256SUMS.txt`. With the [GitHub CLI](https://cli.github.com), `gh attestation verify PrismRPC-Setup.exe --repo TempeNava/PrismRPC` also confirms that GitHub Actions built the file from this repo.
-- **VirusTotal scan:** [view the scan](https://www.virustotal.com/gui/file/aab0949fec1c2c17c05ed908c28c74fb22582a8dba7ca0234436c6a52804d8bb/)
+- **VirusTotal scan:** [view the scan](https://www.virustotal.com/gui/file/db6e0df5129e87257566311dae7c68f6d4a99eae464e7e260522bb975d98afdd?nocache=1)
 
 ## Troubleshooting
 
